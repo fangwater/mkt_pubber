@@ -1,0 +1,22 @@
+is_primary: true
+restart_duration_secs: 180 #3分钟重启一次，奇数偶数决定主备重启 
+binance_snapshot_requery_time: "--:--:--"
+symbol_socket: "/home/crypto_mkt/symbol_server/exchange"
+exchange: binance-futures
+# exchange: okex-swap
+# exchange: bybit
+
+zmq_proxy:
+  ipc_path: "/tmp/zmq_mkt_feeds.ipc"
+  primary_addr: "38.55.198.59:5555"
+  secondary_addr: "68.64.176.133:5555"
+  hwm: 50000
+
+redis_pubber:
+  host: "124.223.189.200"
+  port: "6379"
+  username: "el_crypto"
+  password: "el_crypto"
+  mode: "FromStart"
+  publish_as_protobuf: true # or just keep capnp
+  max_stream_size: 100 #3s一条，保留5min，20*5
