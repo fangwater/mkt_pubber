@@ -20,6 +20,10 @@ serde_yaml = "0.9"
 prost = "0.12"
 tonic = "0.10"
 chrono = "0.4"
+base64 = "0.21"
+zmq = "0.10.0"
+tokio-utils = "0.1.2"
+tokio-util = "0.7.15"
 
 [build-dependencies]
 tonic-build = "0.10"

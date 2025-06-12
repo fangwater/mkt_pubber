@@ -1,12 +1,14 @@
 use serde::Deserialize;
 use std::fs;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 pub enum Mode {
     #[serde(rename = "FromStart")]
     FromStart,
     #[serde(rename = "FromCurrent")]
     FromCurrent,
+    #[serde(rename = "ProtoBuf")]
+    ProtoBuf,
     #[serde(rename = "Error")]
     Error,
 }

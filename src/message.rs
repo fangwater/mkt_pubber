@@ -1,14 +1,15 @@
 use anyhow::{Result, Context, bail};
-use tracing::{info, error, debug, warn};
+use log::{info, error, debug, warn};
 //for capnp
 use capnp::message::ReaderOptions;
 use capnp::serialize;
 //for protobuf
 use crate::proto::message_old;
 use prost::Message;
-use flate2::read::{ZlibDecoder, ZlibEncoder};
+use flate2::read::ZlibDecoder;
+use flate2::write::ZlibEncoder;
 use flate2::Compression;
-use std::io::Read;
+use std::io::{Read, Write};
 
 // 引用生成的 Cap'n Proto 代码
 use crate::period_capnp;
@@ -63,29 +64,23 @@ impl PeriodMessage {
         )?;
 
         let reader = message_reader.get_root::<period_capnp::period_message::Reader>()?;
-        let poster_id = match reader.get_poster_id() {
-            Ok(id) => id.to_string(),
-            Err(e) => {
-                error!("Failed to get poster ID: {}", e);
-                return Err(e.into());
-            }
-        };
+        
         Ok(PeriodMessage {
             period: reader.get_period(),
             ts: reader.get_ts(),
             post_ts: reader.get_post_ts(),
-            poster_id: reader.get_poster_id()?.to_string(),
+            poster_id: reader.get_poster_id()?.to_string()?,
             symbol_infos: reader.get_symbol_infos()?
                 .iter()
                 .map(|info| -> Result<SymbolInfo> {
                     Ok(SymbolInfo {
-                        symbol: info.get_symbol()?.to_string(),
+                        symbol: info.get_symbol()?.to_string()?,
                         trades: info.get_trades()?
                             .iter()
                             .map(|trade| -> Result<TradeInfo> {
                                 Ok(TradeInfo {
                                     timestamp: trade.get_timestamp(),
-                                    side: trade.get_side()?.to_string(),
+                                    side: trade.get_side()?.to_string()?,
                                     price: trade.get_price(),
                                     amount: trade.get_amount(),
                                 })
@@ -135,36 +130,46 @@ impl PeriodMessage {
         
         let mut symbol_infos = builder.init_symbol_infos(self.symbol_infos.len() as u32);
         for (i, info) in self.symbol_infos.iter().enumerate() {
-            let mut symbol_info = symbol_infos.reborrow().get(i as u32);
-            symbol_info.set_symbol(&info.symbol);
-            
-            let mut trades = symbol_info.init_trades(info.trades.len() as u32);
-            for (j, trade) in info.trades.iter().enumerate() {
-                let mut trade_builder = trades.reborrow().get(j as u32);
-                trade_builder.set_timestamp(trade.timestamp);
-                trade_builder.set_side(&trade.side);
-                trade_builder.set_price(trade.price);
-                trade_builder.set_amount(trade.amount);
+            {
+                let mut symbol_info = symbol_infos.reborrow().get(i as u32);
+                symbol_info.set_symbol(&info.symbol);
+                
+                let mut trades = symbol_info.reborrow().init_trades(info.trades.len() as u32);
+                for (j, trade) in info.trades.iter().enumerate() {
+                    let mut trade_builder = trades.reborrow().get(j as u32);
+                    trade_builder.set_timestamp(trade.timestamp);
+                    trade_builder.set_side(&trade.side);
+                    trade_builder.set_price(trade.price);
+                    trade_builder.set_amount(trade.amount);
+                }
             }
             
-            let mut incs = symbol_info.init_incs(info.incs.len() as u32);
-            for (j, inc) in info.incs.iter().enumerate() {
-                let mut inc_builder = incs.reborrow().get(j as u32);
-                inc_builder.set_timestamp(inc.timestamp);
-                inc_builder.set_is_snapshot(inc.is_snapshot);
-                
-                let mut bids = inc_builder.init_bids(inc.bids.len() as u32);
-                for (k, bid) in inc.bids.iter().enumerate() {
-                    let mut bid_builder = bids.reborrow().get(k as u32);
-                    bid_builder.set_price(bid.price);
-                    bid_builder.set_amount(bid.amount);
-                }
-                
-                let mut asks = inc_builder.init_asks(inc.asks.len() as u32);
-                for (k, ask) in inc.asks.iter().enumerate() {
-                    let mut ask_builder = asks.reborrow().get(k as u32);
-                    ask_builder.set_price(ask.price);
-                    ask_builder.set_amount(ask.amount);
+            {
+                let mut symbol_info = symbol_infos.reborrow().get(i as u32);
+                let mut incs = symbol_info.init_incs(info.incs.len() as u32);
+                for (j, inc) in info.incs.iter().enumerate() {
+                    {
+                        let mut inc_builder = incs.reborrow().get(j as u32);
+                        inc_builder.set_timestamp(inc.timestamp);
+                        inc_builder.set_is_snapshot(inc.is_snapshot);
+                        
+                        let mut bids = inc_builder.reborrow().init_bids(inc.bids.len() as u32);
+                        for (k, bid) in inc.bids.iter().enumerate() {
+                            let mut bid_builder = bids.reborrow().get(k as u32);
+                            bid_builder.set_price(bid.price);
+                            bid_builder.set_amount(bid.amount);
+                        }
+                    }
+                    
+                    {
+                        let mut inc_builder = incs.reborrow().get(j as u32);
+                        let mut asks = inc_builder.init_asks(inc.asks.len() as u32);
+                        for (k, ask) in inc.asks.iter().enumerate() {
+                            let mut ask_builder = asks.reborrow().get(k as u32);
+                            ask_builder.set_price(ask.price);
+                            ask_builder.set_amount(ask.amount);
+                        }
+                    }
                 }
             }
         }
@@ -173,9 +178,9 @@ impl PeriodMessage {
         serialize::write_message(&mut buffer, &message)?;
         
         if use_compression {
-            let mut encoder = ZlibEncoder::new(&buffer[..], Compression::default());
-            let mut compressed = Vec::new();
-            encoder.read_to_end(&mut compressed)?;
+            let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+            encoder.write_all(&buffer)?;
+            let compressed = encoder.finish()?;
             Ok(compressed)
         } else {
             Ok(buffer)
@@ -256,9 +261,9 @@ impl PeriodMessage {
         proto_msg.encode(&mut buffer)?;
         
         if use_compression {
-            let mut encoder = ZlibEncoder::new(&buffer[..], Compression::default());
-            let mut compressed = Vec::new();
-            encoder.read_to_end(&mut compressed)?;
+            let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+            encoder.write_all(&buffer)?;
+            let compressed = encoder.finish()?;
             Ok(compressed)
         } else {
             Ok(buffer)
@@ -272,40 +277,19 @@ impl PeriodMessage {
         info!("  Post Timestamp: {}", self.post_ts);
         info!("  Poster ID: {}", self.poster_id);
         info!("  Number of Symbols: {}", self.symbol_infos.len());
-
+        println!("┌{:─^60}┐", "");
+        println!("│{: ^60}│", "OrderBook Archive");
+        println!("│{: ^60}│", format!("period: {}", self.period));
+        println!("├{:─^60}┤", "");
+        println!("│{: <20}│{: >19}│{: >19}│", "Symbol", "Inc_Count", "Trade_Count");
+        println!("├{:─^60}┤", "");
         for symbol_info in &self.symbol_infos {
-            info!("Symbol: {}", symbol_info.symbol);
-            info!("  Number of Trades: {}", symbol_info.trades.len());
-            info!("  Number of Order Book Updates: {}", symbol_info.incs.len());
-
-            // 打印最新的订单簿信息
-            if let Some(latest_inc) = symbol_info.incs.last() {
-                info!("  Latest Order Book Update:");
-                info!("    Timestamp: {}", latest_inc.timestamp);
-                info!("    Is Snapshot: {}", latest_inc.is_snapshot);
-                info!("    Number of Bids: {}", latest_inc.bids.len());
-                info!("    Number of Asks: {}", latest_inc.asks.len());
-
-                // 打印前5个买卖盘
-                info!("    Top 5 Bids:");
-                for (i, bid) in latest_inc.bids.iter().take(5).enumerate() {
-                    info!("      {}. Price: {}, Amount: {}", i + 1, bid.price, bid.amount);
-                }
-
-                info!("    Top 5 Asks:");
-                for (i, ask) in latest_inc.asks.iter().take(5).enumerate() {
-                    info!("      {}. Price: {}, Amount: {}", i + 1, ask.price, ask.amount);
-                }
-            }
-
-            // 打印最新的成交信息
-            if let Some(latest_trade) = symbol_info.trades.last() {
-                info!("  Latest Trade:");
-                info!("    Timestamp: {}", latest_trade.timestamp);
-                info!("    Side: {}", latest_trade.side);
-                info!("    Price: {}", latest_trade.price);
-                info!("    Amount: {}", latest_trade.amount);
-            }
+            println!("│{: <20}│{: >19}│{: >19}│", 
+                symbol_info.symbol, 
+                symbol_info.incs.len(), 
+                symbol_info.trades.len()
+            );
         }
+        println!("└{:─^60}┘", "");
     }
 } 
