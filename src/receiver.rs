@@ -24,7 +24,7 @@ impl ZmqReceiver {
         context.set_io_threads(1)?;
         
         // 创建PULL socket用于接收消息
-        let ipc_socket = context.socket(SocketType::PULL)?;
+        let ipc_socket = context.socket(SocketType::SUB)?;
         
         // 设置接收水位线
         ipc_socket.set_rcvhwm(100 as i32)?;
@@ -39,20 +39,21 @@ impl ZmqReceiver {
             msg_tx: msg_tx,
         };
         
-        receiver.bind()?;
+        receiver.subscribe()?;
         Ok(receiver)
     }
     
-    fn bind(&mut self) -> Result<(), zmq::Error> {
+    fn subscribe(&mut self) -> Result<(), zmq::Error> {
         let ipc_addr = format!("ipc://{}", "/tmp/mkt_archive.ipc");
-        
-        match self.ipc_socket.bind(&ipc_addr) {
+        // 订阅所有主题
+        self.ipc_socket.set_subscribe(b"")?;
+        match self.ipc_socket.connect(&ipc_addr) {
             Ok(_) => {
-                info!("ZmqReceiver bind success, ipc: {}", ipc_addr);
+                info!("ZmqReceiver connect success, ipc: {}", ipc_addr);
                 Ok(())
             }
             Err(e) => {
-                error!("ZmqReceiver IPC bind failed, path: {}, error: {}", ipc_addr, e);
+                error!("ZmqReceiver IPC connect failed, path: {}, error: {}", ipc_addr, e);
                 Err(e)
             }
         }

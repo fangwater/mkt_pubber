@@ -42,31 +42,20 @@ local max_info_count = 0
 local same_period_msgs = {}  -- 存储相同period的所有消息
 
 for i, msg in ipairs(msgs) do
-    log("处理消息 " .. i .. ", 消息ID: " .. msg[1])
     local fields = msg[2]
-    log("字段数组长度: " .. #fields)
-    
     -- Redis Stream字段是以数组形式存储的: [field1, value1, field2, value2, ...]
     local msg_key = nil
     for j = 1, #fields, 2 do
         local field_name = fields[j]
         local field_value = fields[j + 1]
-        if field_name == "msg_content" then
-            log("字段: " .. field_name .. " = [binary data, length: " .. string.len(field_value) .. "]")
-        else
-            log("字段: " .. field_name .. " = " .. field_value)
-        end
         if field_name == "key" then
             msg_key = field_value
         end
     end
-    
     if msg_key then
         local msg_dash_pos = string.find(msg_key, "-")
-        log("msg_dash_pos: " .. msg_dash_pos)
         if msg_dash_pos then
             local msg_period = string.sub(msg_key, msg_dash_pos + 1)
-            log("msg_period: " .. msg_period)
             if msg_period == new_period then
                 log("找到相同 period 的消息: " .. msg_key)
                 -- 从字段数组中查找info_count

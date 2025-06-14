@@ -1,14 +1,11 @@
 use anyhow::Result;
 use log::{info, error};
-use std::path::PathBuf;
-use std::fs::File;
-use std::io::Read;
 use mkt_pubber::receiver::ZmqReceiver;
 use tokio::{select, sync::watch};
 use tokio::signal;
 use tokio_util::sync::CancellationToken;
 // 从 lib crate 导入
-use mkt_pubber::{RedisConfig, Mode, PeriodMessage, MktArchiveMsg, RedisStreamMktPubber};
+use mkt_pubber::{PeriodMessage, MktArchiveMsg, RedisStreamMktPubber};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -21,7 +18,7 @@ async fn main() -> Result<()> {
         })
         .init();
     println!("正在创建 Redis 发布者...");
-    let publisher = match RedisStreamMktPubber::new("/Users/fanghaizhou/project/mkt_pubber/mkt_cfg.yaml") {
+    let publisher = match RedisStreamMktPubber::new("./mkt_cfg.yaml").await {
         Ok(p) => {
             println!("Redis 发布者创建成功");
             p
@@ -45,7 +42,6 @@ async fn main() -> Result<()> {
     let mut msg_rx = receiver.get_msg_rx();
     
     // 在后台任务中启动接收器
-    let shutdown_tx_clone = shutdown_tx.clone();
     tokio::spawn(async move {
         tokio::task::spawn_blocking(move || {
             receiver.start_receiving();
@@ -78,7 +74,7 @@ async fn main() -> Result<()> {
         select! {
             // 优先检查取消信号
             _ = token.cancelled() => {
-                info!("收到关闭信号，开始优雅退出...");
+                info!("收到关闭信号，开始退出...");
                 break;
             }
             
@@ -112,7 +108,7 @@ async fn main() -> Result<()> {
                 let archive_msg = MktArchiveMsg::new(
                     message.period,
                     message.post_ts,
-                    message.symbol_infos.len() as i32,
+                    message.total_info_count(),
                     msg
                 );
                 

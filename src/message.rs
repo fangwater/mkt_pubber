@@ -1,5 +1,5 @@
-use anyhow::{Result, Context, bail};
-use log::{info, error, debug, warn};
+use anyhow::Result;
+use log::info;
 //for capnp
 use capnp::message::ReaderOptions;
 use capnp::serialize;
@@ -145,7 +145,7 @@ impl PeriodMessage {
             }
             
             {
-                let mut symbol_info = symbol_infos.reborrow().get(i as u32);
+                let symbol_info = symbol_infos.reborrow().get(i as u32);
                 let mut incs = symbol_info.init_incs(info.incs.len() as u32);
                 for (j, inc) in info.incs.iter().enumerate() {
                     {
@@ -162,7 +162,7 @@ impl PeriodMessage {
                     }
                     
                     {
-                        let mut inc_builder = incs.reborrow().get(j as u32);
+                        let inc_builder = incs.reborrow().get(j as u32);
                         let mut asks = inc_builder.init_asks(inc.asks.len() as u32);
                         for (k, ask) in inc.asks.iter().enumerate() {
                             let mut ask_builder = asks.reborrow().get(k as u32);
@@ -291,5 +291,18 @@ impl PeriodMessage {
             );
         }
         println!("└{:─^60}┘", "");
+    }
+    pub fn total_info_count(&self) -> u64 {
+        let mut inc_count = 0;
+        for symbol_info in &self.symbol_infos {
+            inc_count += symbol_info.incs.len() as u64;
+        }
+        info!("Total Increment Order Book Info Count: {}", inc_count);
+        let mut trade_count = 0;
+        for symbol_info in &self.symbol_infos {
+            trade_count += symbol_info.trades.len() as u64;
+        }
+        info!("Total Trade Info Count: {}", trade_count);
+        inc_count + trade_count
     }
 } 
